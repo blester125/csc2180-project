@@ -18,6 +18,8 @@ def get_value(x):
         return x.numerator_as_long() / x.denominator_as_long()
     if z3.is_algebraic_value(x):
         return x.approx()
+    if x == None:
+        return 0
     raise ValueError(f"I don't know what {x} is.")
 
 
