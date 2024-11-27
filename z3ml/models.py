@@ -49,7 +49,64 @@ class z3Linear(z3ML):
 
     def predict(self, x):
         logits = self.forward(x)
-        return logits > 0
+        return (logits > 0).astype(np.int32)
+
+
+class z3OneVsOne(z3ML):
+    def __init__(
+        self, classes: list, model_factory: type[z3ML] = z3Linear, *args, **kwargs
+    ):
+        super().__init__()
+        # {(c1, c2): c1-vs-c2-classifier}
+        self.models = {}
+        # The list classes we are classifying.
+        self.classes = classes
+        # A mapping from 0, 1 -> the original classes.
+        self.idx = []
+        for c1, c2 in self.enumerate_classes():
+            # Create a model for each class combo.
+            self.models[(c1, c2)] = model_factory(*args, **kwargs)
+            # Track the 0, 1 translation.
+            self.idx.append([c1, c2])
+        # idx[m.predict(x)] will translate back to og labels
+        self.idx = np.array(self.idx)
+        # one_hot[pred] will give the one-hot version.
+        self.one_hot = np.eye(len(classes))
+
+    def forward(self, x):
+        if isinstance(x, dict):
+            return {c: self.models[c].forward(x_) for c, x_ in x.items()}
+        return {c: m.forward(x) for c, m in self.models.items()}
+
+    def realize(self, models):
+        self.models = {k: m.realize(models[k]) for k, m in self.models.items()}
+        return self
+
+    def predict(self, x):
+        votes = [model.predict(x) for model in self.models.values()]  # list[B]
+        # Stack the 0,1 output of each classifier in the one-vs-one
+        votes = np.stack(votes, axis=0)  # [V, B]
+        # Convert to original labels and to one hot
+        votes = np.take_along_axis(self.idx, votes, axis=-1)
+        votes = self.one_hot[votes]
+        # Sum over the classifier votes and then argmax to get most voted class.
+        return np.argmax(np.sum(votes, axis=0), axis=-1)
+
+    def enumerate_classes(self):
+        for i, c1 in enumerate(self.classes):
+            for c2 in self.classes[i + 1 :]:
+                yield c1, c2
+
+    def filter_data(self, x, y):
+        xs = {}
+        ys = {}
+        for c1, c2 in self.enumerate_classes():
+            idx = (y == c1) | (y == c2)
+            y_ = y[idx]
+            y_ = np.where(y_ == c1, 0, 1)  # Convert to 0, 1
+            xs[(c1, c2)] = x[idx]
+            ys[(c1, c2)] = y_
+        return xs, ys
 
 
 class z3MultiClassLinear(z3Linear):

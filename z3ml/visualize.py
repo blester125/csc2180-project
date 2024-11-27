@@ -15,7 +15,7 @@ def plot(x, y, colors=COLORS, ax=None):
     return ax
 
 
-def plot_boundry(
+def plot_boundary(
     x,
     y,
     model,
@@ -39,6 +39,10 @@ def plot_boundry(
         xx, yy, z, levels=list(range(-1, num_classes)), colors=colors, alpha=alpha
     )
     return ax
+
+
+# So we don't need to fix all my typos yet lol
+plot_boundry = plot_boundary
 
 
 def plot_unsat(x, y, unsat, colors=COLORS, edgecolor="k", ax=None):

@@ -31,6 +31,10 @@ def threshold_loss(logits, y, threshold: float = 0) -> list[utils.Constraints]:
     ]
 
 
+def one_vs_one_loss(logits, y, loss: LossFunction = threshold_loss):
+    return {c: loss(l, y[c]) for c, l in logits.items()}
+
+
 def multiclass_loss(logits, y) -> list[utils.Constraints]:
     """Constraint that says the argmax variable needs to be assigned to the correct class index.
 
