@@ -7,6 +7,7 @@ import json
 import operator as op
 import os
 import pathlib
+import secrets
 import shutil
 import time
 from datetime import datetime
@@ -23,8 +24,9 @@ parser.add_argument("--classes", type=int, required=True, help="")
 parser.add_argument("--features", type=int, required=True, help="")
 parser.add_argument("--samples", type=int, required=True, help="")
 parser.add_argument("--model", choices=["linear"], default="linear", help="")
+parser.add_argument("--one-vs-one", action="store_true", help="")
 parser.add_argument("--results", default="results.json", help="")
-parser.add_argument("--seed", type=int, default=1337, help="")
+parser.add_argument("--seed", type=int, help="")
 parser.add_argument("--trial", type=int, default=1, help="")
 
 
@@ -35,6 +37,7 @@ class Config:
     num_samples: int
     seed: int
     model: str
+    one_vs_one: bool
     sk_learn_version: str
     z3ml_version: str
     z3_version: str
@@ -61,7 +64,7 @@ def backup_file(path):
     head = os.path.dirname(path)
     tail = os.path.basename(path)
     ts = datetime.now().strftime("%Y-%m-%d-%H:%M:%S")
-    return os.path.join(head, f".{tail}.bk.{ts}")
+    return os.path.join(head, ".results", f"{tail}.bk.{ts}")
 
 
 def read_results(path):
@@ -71,7 +74,9 @@ def read_results(path):
     # Create a shadow file
     shutil.copy(path, temp)
     # Create a backup
-    shutil.copy(temp, backup_file(path))
+    backup_path = backup_file(path)
+    os.makedirs(os.path.dirname(backup_path), exist_ok=True)
+    shutil.copy(temp, backup_path)
     with open(path) as f:
         # json.load doesn't handle an empty file.
         f_content = f.read()
@@ -98,6 +103,8 @@ def write_results(results, path):
 
 
 def main(args):
+    if args.seed is None:
+        args.seed = secrets.randbits(32)
     # Setup Configuration
     config = Config(
         num_classes=args.classes,
@@ -105,6 +112,7 @@ def main(args):
         num_samples=args.samples,
         seed=args.seed,
         model=args.model,
+        one_vs_one=args.one_vs_one,
         sk_learn_version=sklearn.__version__,
         z3ml_version=z3ml.__version__,
         z3_version="missing",
@@ -125,25 +133,60 @@ def main(args):
             ml = z3ml.models.z3MultiClassLinear(config.num_features, config.num_classes)
             loss_fn = z3ml.losses.multiclass_loss
         else:
-            ml = z3ml.models.z3Linear(config.num_features)
-            loss_fn = z3ml.losses.threshold_loss
+            if config.one_vs_one:
+                ml = z3ml.models.z3OneVsOne(
+                    classes=list(range(config.num_classes)),
+                    model_factory=z3ml.models.z3Linear,
+                    n_features=config.num_features,
+                )
+                loss_fn = z3ml.losses.one_vs_one_loss
+            else:
+                ml = z3ml.models.z3Linear(config.num_features)
+                loss_fn = z3ml.losses.threshold_loss
     else:
         raise ValueError("Don't understand what model this is.")
 
     # Create the constraints
+    if config.one_vs_one:
+        X, y = ml.filter_data(X, y)
+
+    tic = time.time()
     constraints = z3ml.train.train(X, y, ml, loss_fn)
+    toc = time.time()
+    constraint_generation_time = toc - tic
 
     # Solve the SAT problem.
-    s = z3.Solver()
-    s.add(*itertools.chain(*constraints))
-    tic = time.time()
-    status = s.check()
-    if status == z3.unsat:
-        raise ValueError("This dataset is UNSAT, try changing the seed.")
-    m = s.model()
-    toc = time.time()
+    if config.one_vs_one:
+        solvers = {}
+        for classes, constraint in constraints.items():
+            s = z3.Solver()
+            s.add(*itertools.chain(*constraint))
+        tic = time.time()
+        for solver in solvers.values():
+            status = solver.check()
+            if status == z3.unsat:
+                raise ValueError("This dataset is UNSAT, try changing the seed.")
+        toc = time.time()
+
+    else:
+        s = z3.Solver()
+        s.add(*itertools.chain(*constraints))
+        tic = time.time()
+        status = s.check()
+        toc = time.time()
+        if status == z3.unsat:
+            raise ValueError("This dataset is UNSAT, try changing the seed.")
+
     # Calculate the time taken
-    results.append({**dataclasses.asdict(config), **{"time": toc - tic}})
+    results.append(
+        {
+            **dataclasses.asdict(config),
+            **{
+                "constraint_generation_time": constraint_generation_time,
+                "solve_time": toc - tic,
+            },
+        }
+    )
 
     write_results(results, args.results)
 

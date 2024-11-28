@@ -39,7 +39,7 @@ class z3ML(metaclass=abc.ABCMeta):
 class z3Linear(z3ML):
     """z3 ML Model with binary output."""
 
-    def __init__(self, n_features: int, dtype=z3.Real):
+    def __init__(self, n_features: int, dtype=z3.Real, **kwargs):
         super().__init__()
         self.parameters["w"] = np.array([dtype(f"w_{i}") for i in range(n_features)])
         self.parameters["b"] = np.array([dtype("b")])
