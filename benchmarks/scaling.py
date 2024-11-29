@@ -129,17 +129,19 @@ def main(args):
     )
     # Get model and loss based on config
     if args.model == "linear":
-        if args.classes == 2:
-            ml = z3ml.models.z3MultiClassLinear(config.num_features, config.num_classes)
-            loss_fn = z3ml.losses.multiclass_loss
+        if config.one_vs_one:
+            ml = z3ml.models.z3OneVsOne(
+                classes=list(range(config.num_classes)),
+                model_factory=z3ml.models.z3Linear,
+                n_features=config.num_features,
+            )
+            loss_fn = z3ml.losses.one_vs_one_loss
         else:
-            if config.one_vs_one:
-                ml = z3ml.models.z3OneVsOne(
-                    classes=list(range(config.num_classes)),
-                    model_factory=z3ml.models.z3Linear,
-                    n_features=config.num_features,
+            if args.classes == 2:
+                ml = z3ml.models.z3MultiClassLinear(
+                    config.num_features, config.num_classes
                 )
-                loss_fn = z3ml.losses.one_vs_one_loss
+                loss_fn = z3ml.losses.multiclass_loss
             else:
                 ml = z3ml.models.z3Linear(config.num_features)
                 loss_fn = z3ml.losses.threshold_loss
