@@ -36,6 +36,24 @@ class z3ML(metaclass=abc.ABCMeta):
         return self
 
 
+class dRealLinear:
+    def __init__(self, n_features: int, **kwargs):
+        super.__init__()
+        import dreal
+
+        self.parameters["w"] = np.array(
+            [dreal.Variable(f"w_{i}") for i in range(n_features)]
+        )
+        self.parameters["b"] = np.array([dreal.Variable(f"b")])
+
+    def forward(self, x):
+        return x @ self.parameters["w"] + self.parameters["b"]
+
+    def predict(self, x):
+        logits = self.forward(x)
+        return (logits > 0).astype(np.int32)
+
+
 class z3Linear(z3ML):
     """z3 ML Model with binary output."""
 
@@ -87,7 +105,10 @@ class z3OneVsOne(z3ML):
         # Stack the 0,1 output of each classifier in the one-vs-one
         votes = np.stack(votes, axis=0)  # [V, B]
         # Convert to original labels and to one hot
-        votes = np.take_along_axis(self.idx, votes, axis=-1)
+        # votes = np.take_along_axis(self.idx, votes, axis=-1)
+        # Dynamically make this in case we don't have a model b/c unsat.
+        idx = np.array(list(self.models.keys()))
+        votes = np.take_along_axis(idx, votes, axis=-1)
         votes = self.one_hot[votes]
         # Sum over the classifier votes and then argmax to get most voted class.
         return np.argmax(np.sum(votes, axis=0), axis=-1)

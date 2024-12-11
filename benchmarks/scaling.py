@@ -11,6 +11,7 @@ import secrets
 import shutil
 import time
 from datetime import datetime
+from typing import Optional
 
 import cpuinfo
 import sklearn
@@ -28,6 +29,7 @@ parser.add_argument("--one-vs-one", action="store_true", help="")
 parser.add_argument("--results", default="results.json", help="")
 parser.add_argument("--seed", type=int, help="")
 parser.add_argument("--trial", type=int, default=1, help="")
+parser.add_argument("--tag", default="", help="")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -43,6 +45,7 @@ class Config:
     z3_version: str
     processor: str
     memory: int
+    tag: Optional[str] = ""
 
     def __str__(self):
         return json.dumps(
@@ -118,6 +121,7 @@ def main(args):
         z3_version="missing",
         processor=cpuinfo.get_cpu_info()["brand_raw"],
         memory=os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES"),
+        tag=args.tag,
     )
     results = read_results(args.results)
     # Generate Dataset
